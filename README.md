@@ -1,5 +1,3 @@
-<!-- Improved compatibility of back to top link: See: https://github.com/othneildrew/Best-README-Template/pull/73 -->
-<a id="readme-top"></a>
 
 <!-- PROJECT LOGO -->
 <br />
@@ -10,55 +8,19 @@
 
 
 
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#contributing">Contributing</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
-  </ol>
-</details>
-
-
-
 <!-- ABOUT THE PROJECT -->
-## About The Project
+## About
 
 [![Product Name Screen Shot][product-screenshot]](https://example.com)
 
-There are many great README templates available on GitHub; however, I didn't find one that really suited my needs so I created this enhanced one. I want to create a README template so amazing that it'll be the last one you ever need -- I think this is it.
-
-Here's why:
-* Your time should be focused on creating something amazing. A project that solves a problem and helps others
-* You shouldn't be doing the same tasks over and over like creating a README from scratch
-* You should implement DRY principles to the rest of your life :smile:
-
-Of course, no one template will serve all projects since your needs may be different. So I'll be adding more in the near future. You may also suggest changes by forking this repo and creating a pull request or opening an issue. Thanks to all the people have contributed to expanding this template!
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+In an effort to showcase my work and research with Machine Learning and to create a repository from which I can receive relevant templates and tutorials, I have created this portfolio piece. All works are sorted by a generalization of their shared goal or models. For example, I have grouped all projects that make use of CNN implementations in the folder `Object Detection`. Larger or more flushed out projects may their own dedicated folder, such as the `MTG_Library`. All projects, templates, and tutorials stored within this repository are my own work or research I have completed with a team.
 
 
 
 <!-- GETTING STARTED -->
 ## Getting Started
 
-I recommend checking out the Object Detection projects first, as those are the most visually appealing and easy to follow. Any works found within the Templates and Tutorials folders will be made with the intention of implementing an easy-to-follow guide complete with diagrams and personal notes. All ML works completed during my studies are stored within the Undergraduate Research folder. Each of the projects within this folder have an associated in-depth report which outlines the purpose, hypotheses, and findings.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+I recommend checking out the `Object Detection` projects first, as those are the most visually appealing and easy to follow. Any works found within the Templates and Tutorials folders will be made with the intention of implementing an easy-to-follow guide complete with diagrams and personal notes. All ML works completed during my studies are stored within the Undergraduate Research folder. Each of the projects within this folder have an associated in-depth report which outlines the purpose, hypotheses, and findings.
 
 
 
@@ -66,8 +28,6 @@ I recommend checking out the Object Detection projects first, as those are the m
 ## Contact
 
 Bjørn Christensen - bjorn.christensen@mail.mcgill.ca
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
 
