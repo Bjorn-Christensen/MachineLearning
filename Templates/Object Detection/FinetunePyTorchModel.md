@@ -1,0 +1,336 @@
+# About
+
+This tutorial is designed to efficiently walk you through training an object detection model by fine-tuning a pretrained PyTorch Faster RCNN model. Some sections of this tutorial are written under the assumption that you are working with data that has already been processed following the template in [PreprocessData.md](PreprocessData.md). Acknowledging this limitation, code blocks that often have multiple approaches are written to reflect a general outline rather than a concrete solution. Please refer to the table of contents for assistance in navigating this tutorial.
+
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li><a href="#starter-imports">Starter Imports</a></li>
+    <li><a href="#set-device-type">Set Device Type</a></li>
+    <li>
+      <a href="#load-dataset">Load Dataset</a>
+      <ul>
+        <li><a href="#pandas-load">Pandas Dataset</a></li>
+        <li><a href="#huggingface-load">HuggingFace Dataset</a></li>
+        <li><a href="#xml-load">XML Files</a></li>
+        <li><a href="#separted-images-load">Separated Images</a></li>
+      </ul>
+    </li>
+    <li><a href="#determine-classes">Determine Classes</a></li>
+    <li><a href="#initialize-model">Initialize Model</a></li>
+    <li><a href="#create-custom-dataset">Create Custom Dataset</a></li>
+    <li><a href="#create-dataloader">Create Dataloader</a></li>
+    <li><a href="#customize-optimizer-function">Customize Optimizer Function</a></li>
+    <li><a href="#fine-tune-model">Fine Tune Model</a></li>
+    <li><a href="#visualize-training-efficacy">Visualize Training Efficacy</a></li>
+  </ol>
+</details>
+
+# Starter Imports
+
+```python
+# Model Building
+import torch
+from torch.utils.data import Dataset
+from torchvision import transforms
+from torchvision.models import detection
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+# Data Extraction
+from PIL import Image # Image editing
+import io
+import numpy as np
+
+# Data Visualization
+import matplotlib.pyplot as plt
+
+# Testing
+from tqdm import tqdm
+```
+
+# Set Device Type
+
+The template assumes we are working on cuda as it is most efficient for deep learning object detection model training. If you happen to be working on cpu, there are a number of small adjustments that need to be made (especially when visualizing data) which will not be included here.
+
+```python
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+print(device)
+```
+
+# Load Dataset
+
+## Pandas Load:
+
+Pandas can handle a wide variety of file types and is simple to work with. When available, I prefer this option.
+
+```python
+import pandas as pd
+
+dataset = pd.read_pickle('PickledDataset.pkl')
+dataset = pd.read_csv('CSVDataset.csv')
+```
+
+## HuggingFace Load:
+
+With hugging face datasets, there are three primary load options:
+- Download dataset locally and load_dataset in full
+- Stream in dataset directly from HuggingFace servers
+- Stream from locally downloaded dataset in order to bypass converting data to Arrow which can save on time and memory
+
+```python
+from datasets import load_dataset
+
+# Local parquet files
+data_files = {'train': 'train*', 'test': 'test*'}
+dataset = load_dataset('parquet', data_dir='path\\to\\dataset_name\\data\\', data_files=data_files, split='train[:20%]')
+dataset = ds_train.with_format('torch', device=device)
+
+# Stream in HuggingFace dataset
+dataset = load_dataset('oscar-corpus/OSCAR-2201', 'en', split='train', streaming=True)
+print(next(iter(dataset))) # Streaming creates iterable dataset object
+
+# Stream in local HuggingFace dataset
+data_files = {'train': 'path/to/OSCAR-2201/compressed/en_meta/*.jsonl.gz'}
+dataset = load_dataset('json', data_files=data_files, split='train', streaming=True)
+
+# Convert all data to torch tensors
+dataset = dataset.with_format('torch', device=device)
+```
+
+## XML Load:
+
+Create a list of all xml file path names from local folder. Each file will be individually loaded during a later process.
+
+```python
+import os
+from bs4 import BeautifulSoup # Library to be used during later process
+
+xml_files = list(os.listdir("path/to/train_data/"))
+```
+
+## Separated Images Load:
+
+Create a list of all image path names from local folder. Each file will be individually loaded during a later process.
+
+```python
+import os
+
+images = list(os.listdir("path/to/train_images/"))
+```
+
+# Determine Classes
+
+Especially important for poorly maintained datasets, you will want to create a function to determine how many classes/labels are associated with images in the dataset. During this process you will also want to create a method for mapping classes/labels from their original datatype to an integer for model training. There are some generic steps you can use to approach any dataset:
+- Read the dataset documentation! Most of your answers should be found here, but there are also instances where the documentation does not align with the reality of how images are labeled within the dataset
+- Iterate over dataset to determine number of unique classes/labels
+- Create a dictionary or mapping function that sends each label to a corresponding integer from 1 to x, where x is the number of unique classes
+- Initialize the number_of_classes variable which will be used during model creation
+
+```python
+# Example using Pandas dataset, imagine all classes/labels are stored in a column 'metadata'
+unique_labels = dataset['metadata'].unique()
+
+# Create dictionary for mapping, will be used during later process
+label_dict = {}
+i = 1
+for label in unique_labels:
+    label_dict[label] = i
+    i += 1
+
+# This variable is equal to the number of unique classes + 1; the label 0 is reserved for 'no object' or 'background'
+number_of_classes = unique_classes.size + 1
+```
+
+# Initialize Model
+
+This method creates a dictionary to allow the developer to quickly switch between testing various pretrained PyTorch models. 
+
+```python
+# Fill dictionary with models you wish to test
+models = {
+	"frcnn-resnet": detection.fasterrcnn_resnet50_fpn,
+    "frcnn-mobilenet": detection.fasterrcnn_mobilenet_v3_large_320_fpn,
+}
+
+# Load the desired model
+model = models["frcnn-mobilenet"](weights="DEFAULT").to(device)
+in_features = model.roi_heads.box_predictor.cls_score.in_features
+model.roi_heads.box_predictor = FastRCNNPredictor(in_features, number_of_classes)
+
+# This is an optional line which allows you to load locally stored weights from a previous training session.
+# NOTE: Make sure that the local weights correspond to the selected model
+model.load_state_dict(torch.load('LocalFinetunedWeights.pt'))
+```
+
+# Generate Target
+
+During training, generate_target will be called to process data and make any final format changes to prepare it for finetuning the model. This example helper function returns two items:
+- target: a dictionary which combines the bounding boxes and classes/labels associated with the input image
+- img: The input image loaded and reformatted to a tuple of torch tensors
+
+This example assumes that you are working with a pickle file generated from [PreprocessData.md](PreprocessData.md). For additional target generation techniques, such as when working with xml files, please refer to <a href="#additional-target-methods">Additional Target Methods</a>.
+
+```python
+def generate_target(object):
+
+    # Bounding boxes must be in Pascal VOC format, [xmin, ymin, xmax, ymax]
+    boxes = object['annotation']
+    boxes = torch.as_tensor(boxes, dtype=torch.float32)
+
+    # Access label dictionary to map metadata to integers
+    labels = []
+    for label in object['metadata']:
+        labels.append(label_dict[label])
+    labels = torch.as_tensor(labels, dtype=torch.int64)
+
+    # Convert image from Byte to Tensor
+    img = Image.open(io.BytesIO(object['image'])).convert("RGB")
+    data_transform = transforms.Compose([transforms.PILToTensor(), transforms.ConvertImageDtype(torch.float),])
+    img = data_transform(img).to(device)
+
+    # Create target dictionary
+    target = {}
+    target["boxes"] = boxes.to(device)
+    target["labels"] = labels.to(device)
+
+    return target, img
+```
+
+# Create Custom Dataset
+
+PyTorch supports two main types of datasets in its Dataloader object: Map-style and Iterable-style. We create a custom dataset based on our loaded dataset to take advantage of this object in training. Preferably, I work with Map-style datasets.
+
+Map-style Dataset:
+- Implements __getitem__() and __len__() methods
+- Useful on locally stored datasets which are fully loaded in
+
+Iterable-style Dataset:
+- Implements __len__() method
+- Useful when streaming data or when a large dataset cannot be fully loaded into memory
+
+```python
+# Create Mapstyle dataset assuming that you are workign with Pandas dataframe
+class CustomMapStyleDataset(Dataset):
+    def __init__(self, data):
+        self.data = data
+
+    # Use helper function generated earlier to process data
+    def __getitem__(self, idx):
+        target, image = generate_target(self.data.loc[idx])
+        return target, image
+
+    def __len__(self):
+        return len(self.data.index)
+```
+
+# Create Dataloader
+
+Initialize a PyTorch Dataloader object to handle data batching and processing functions during training. The Dataloader object recommends using a custom collate function to group batched data. I include one that works with the Pandas dataset we have used throughout the tutorial.
+
+```python
+def collate_fn(batch):
+  return tuple(zip(*batch))
+
+train_dl = torch.utils.data.DataLoader(dataset=CustomImageDataset(dataset),
+                                       batch_size=8,
+                                       collate_fn=collate_fn,
+                                       )
+```
+
+# Customize Optimizer Function
+
+Finetuning a PyTorch model requires an optimizer. In most instances I use a standard stochastic gradient descent optimizer created using PyTorch. When training your model, you can track loss and accuracy in order to test various optimizer values efficacy. Additionally, a learning rate scheduler can be used to improve convergence accuracy as the model gets closer to optimal weights.
+
+```python
+optimizer = torch.optim.SGD(model.parameters(),
+                            lr=0.001,
+                            momentum=0.9,
+                            weight_decay=0.0005,
+                            )
+
+# NOTE: When using a learning rate scheduler, it may be a good idea to increase the starting learning rate in the optimizer
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                               step_size=3, # How many epochs to run before decreasing learning rate
+                                               gamma=0.1, # How much to decrease learning rate by
+                                               )
+```
+
+# Fine Tune Model
+
+Fine tuning the model requires a few steps to guarantee that everything works smoothly, however this section is also open to a lot of customization.
+- First set the model to train on the correct device, in this case it is cuda
+- Select how many epochs you wish to train your model for
+- At the beginning of every epoch set the model to train mode
+- Make sure that you are correctly accessing data from the dataloader, this is different for map-style vs. iterable datasets
+
+```python
+model.to(device) # Set model to train on cuda
+NUM_EPOCHS = 100 # Set number of epochs to train for
+
+# Some additional variables for tracking training progression
+len_dataloader = len(train_dl) 
+e_num = 1
+losses_for_plot = []
+
+# Run training loop
+for epochs in range(NUM_EPOCHS):
+  model.train()
+  epoch_loss = 0
+  for targets, imgs in tqdm(train_dl): # TQDM to visualize time spent training each epoch
+
+    imgs = list(img.to(device) for img in imgs)
+    annotations = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+    loss_dict = model(imgs, annotations)
+    loss = sum(loss for loss in loss_dict.values())
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    epoch_loss += loss
+
+  lr_scheduler.step() # NOTE: Only use when implementing a learnign rate scheduler
+
+  # Track loss during training
+  print(f' Loss: {epoch_loss}, Epoch: {e_num}')
+  losses_for_plot.append(epoch_loss.item())
+  e_num += 1
+
+  # Save fine-tuned model weights locally
+  torch.save(model.state_dict(),'FinetunedWeights.pt') # Saves after every Epoch
+```
+
+# Visualize Training Efficacy
+
+This is a basic function that can be used to construct a plot which tracks loss during training. Customize your own visualization methods here as a method of testing different approaches to testing. This can help to determine optimal batch sizes, optimizers, learning rate schedulers, and more!
+
+```python
+plt.figure(figsize=(8, 5))
+plt.plot(losses_for_plot)
+
+# Adding labels and title
+plt.title("Loss Per Epoch")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+
+# Display the plot
+plt.show()
+```
+
+# Additional Target Methods
+
+## XML Method:
+
+```python
+def generate_target(file):
+    with open(file) as f:
+        data = f.read()
+        soup = BeautifulSoup(data, 'xml')
+        objects = soup.find_all('object')
+
+        for obj in objects:
+            xmin = int(obj.find('xmin').text) # Extract bbox point
+            label = obj.find('name') # Extract label
+```
