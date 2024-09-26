@@ -1,6 +1,6 @@
 # About
 
-This tutorial is designed to efficiently walk you through training an object detection model by fine-tuning a pretrained PyTorch Faster RCNN model. Some sections of this tutorial are written under the assumption that you are working with data that has already been processed following the template in [PreprocessData.md](PreprocessData.md). Acknowledging this limitation, code blocks that often have multiple approaches are written to reflect a general outline rather than a concrete solution. Please refer to the table of contents for assistance in navigating this tutorial.
+This tutorial is designed to efficiently walk you through testing an object detection model through accuracy scores and bounding box visualization. This tutorial assumes that you are using locally stored weights and a corresponding PyTorch Faster RCNN model. Some sections of this tutorial are also written under the assumption that you are working with data that has already been processed following the template in [PreprocessData.md](PreprocessData.md). Acknowledging this limitation, code blocks that often have multiple approaches are written to reflect a general outline rather than a concrete solution. Please refer to the table of contents for assistance in navigating this tutorial.
 
 <!-- TABLE OF CONTENTS -->
 <details>
@@ -21,9 +21,8 @@ This tutorial is designed to efficiently walk you through training an object det
     <li><a href="#initialize-model">Initialize Model</a></li>
     <li><a href="#create-custom-dataset">Create Custom Dataset</a></li>
     <li><a href="#create-dataloader">Create Dataloader</a></li>
-    <li><a href="#customize-optimizer-function">Customize Optimizer Function</a></li>
-    <li><a href="#fine-tune-model">Fine Tune Model</a></li>
-    <li><a href="#visualize-training-efficacy">Visualize Training Efficacy</a></li>
+    <li><a href="#calculate-accuracy">Calculate Accuracy</a></li>
+    <li><a href="#visualize-boxes">Visualize Boxes</a></li>
   </ol>
 </details>
 
@@ -32,7 +31,6 @@ This tutorial is designed to efficiently walk you through training an object det
 ```python
 # Model Building
 import torch
-from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.models import detection
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -40,12 +38,11 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 # Data Extraction
 from PIL import Image # Image editing
 import io
-import numpy as np
+from datasets import load_dataset
 
-# Data Visualization
+# Visualization
 import matplotlib.pyplot as plt
-
-# Testing
+import matplotlib.patches as patches
 from tqdm import tqdm
 ```
 
@@ -83,16 +80,16 @@ from datasets import load_dataset
 
 # Local parquet files
 data_files = {'train': 'train*', 'test': 'test*'}
-dataset = load_dataset('parquet', data_dir='path\\to\\dataset_name\\data\\', data_files=data_files, split='train[:20%]')
+dataset = load_dataset('parquet', data_dir='path\\to\\dataset_name\\data\\', data_files=data_files, split='test')
 dataset = ds_train.with_format('torch', device=device)
 
 # Stream in HuggingFace dataset
-dataset = load_dataset('oscar-corpus/OSCAR-2201', 'en', split='train', streaming=True)
+dataset = load_dataset('oscar-corpus/OSCAR-2201', 'en', split='test', streaming=True)
 print(next(iter(dataset))) # Streaming creates iterable dataset object
 
 # Stream in local HuggingFace dataset
 data_files = {'train': 'path/to/OSCAR-2201/compressed/en_meta/*.jsonl.gz'}
-dataset = load_dataset('json', data_files=data_files, split='train', streaming=True)
+dataset = load_dataset('json', data_files=data_files, split='test', streaming=True)
 
 # Convert all data to torch tensors
 dataset = dataset.with_format('torch', device=device)
@@ -106,7 +103,7 @@ Create a list of all xml file path names from local folder. Each file will be in
 import os
 from bs4 import BeautifulSoup # Library to be used during later process
 
-xml_files = list(os.listdir("path/to/train_data/"))
+xml_files = list(os.listdir("path/to/test_data/"))
 ```
 
 ## Separated Images Load:
@@ -116,7 +113,7 @@ Create a list of all image path names from local folder. Each file will be indiv
 ```python
 import os
 
-images = list(os.listdir("path/to/train_images/"))
+images = list(os.listdir("path/to/test_images/"))
 ```
 
 # Determine Classes
@@ -149,7 +146,7 @@ This method creates a dictionary to allow the developer to quickly switch betwee
 ```python
 # Fill dictionary with models you wish to test
 models = {
-	"frcnn-resnet": detection.fasterrcnn_resnet50_fpn,
+    "frcnn-resnet": detection.fasterrcnn_resnet50_fpn,
     "frcnn-mobilenet": detection.fasterrcnn_mobilenet_v3_large_320_fpn,
 }
 
@@ -158,7 +155,6 @@ model = models["frcnn-mobilenet"](weights="DEFAULT").to(device)
 in_features = model.roi_heads.box_predictor.cls_score.in_features
 model.roi_heads.box_predictor = FastRCNNPredictor(in_features, number_of_classes)
 
-# This is an optional line which allows you to load locally stored weights from a previous training session.
 # NOTE: Make sure that the local weights correspond to the selected model
 model.load_state_dict(torch.load('LocalFinetunedWeights.pt'))
 ```
@@ -226,97 +222,130 @@ class CustomMapStyleDataset(Dataset):
 
 # Create Dataloader
 
-Initialize a PyTorch Dataloader object to handle data batching and processing functions during training. The Dataloader object recommends using a custom collate function to group batched data. I include one that works with the Pandas dataset we have used throughout the tutorial.
+Initialize a PyTorch Dataloader object to handle data batching and processing functions during training. The Dataloader object recommends using a custom collate function to group batched data. I include one that works with the Pandas dataset we have used throughout the tutorial. Play around with the batch_size:
+- Higher batch_size: More memory usage, Faster training, Less accurate training
+- Lower batch_size: Less memory, Faster than higher batch_size if gpu speeds are throttled by high memory usage, More accurate training
 
 ```python
 def collate_fn(batch):
     return tuple(zip(*batch))
 
-train_dl = torch.utils.data.DataLoader(dataset=CustomImageDataset(dataset),
+test_dl = torch.utils.data.DataLoader(dataset=CustomImageDataset(dataset),
                                        batch_size=8,
                                        collate_fn=collate_fn,
                                        )
 ```
 
-# Customize Optimizer Function
+# Calculate Accuracy
 
-Finetuning a PyTorch model requires an optimizer. In most instances I use a standard stochastic gradient descent optimizer created using PyTorch. When training your model, you can track loss and accuracy in order to test various optimizer values efficacy. Additionally, a learning rate scheduler can be used to improve convergence accuracy as the model gets closer to optimal weights.
-
-```python
-optimizer = torch.optim.SGD(model.parameters(),
-                            lr=0.001,
-                            momentum=0.9,
-                            weight_decay=0.0005,
-                            )
-
-# NOTE: When using a learning rate scheduler, it may be a good idea to increase the starting learning rate in the optimizer
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                               step_size=3, # How many epochs to run before decreasing learning rate
-                                               gamma=0.1, # How much to decrease learning rate by
-                                               )
-```
-
-# Fine Tune Model
-
-Fine tuning the model requires a few steps to guarantee that everything works smoothly, however this section is also open to a lot of customization.
-- First set the model to train on the correct device, in this case it is cuda
-- Select how many epochs you wish to train your model for
-- At the beginning of every epoch set the model to train mode
-- Make sure that you are correctly accessing data from the dataloader, this is different for map-style vs. iterable datasets
+In order to calculate the accuracy of an object detection model I recommend following these two steps:
+1. Create a helper function that runs an intersection over union calculation to determine how closely our predicted boxes match the ground truth data
+2. Iterate over all testing data, run our model on each batch in evaluation mode, then call our helper function, and finally tally all of the scores to find the average IoU score. Ideally this number is >.5. Anything greater than .75 is a very effective model. An average IoU of 1 would mean that our model is perfect and something has gone horribly wrong.
 
 ```python
-model.to(device) # Set model to train on cuda
-NUM_EPOCHS = 100 # Set number of epochs to train for
+def calculate_iou(box1, box2):
+    x1_min, y1_min, x1_max, y1_max = box1
+    x2_min, y2_min, x2_max, y2_max = box2
 
-# Some additional variables for tracking training progression
-len_dataloader = len(train_dl) 
-e_num = 1
-losses_for_plot = []
+    # Calculate intersection
+    inter_x_min = max(x1_min, x2_min)
+    inter_y_min = max(y1_min, y2_min)
+    inter_x_max = min(x1_max, x2_max)
+    inter_y_max = min(y1_max, y2_max)
 
-# Run training loop
-for epochs in range(NUM_EPOCHS):
-    model.train()
-    epoch_loss = 0
-    for targets, imgs in tqdm(train_dl): # TQDM to visualize time spent training each epoch
+    if inter_x_max <= inter_x_min or inter_y_max <= inter_y_min:
+        return 0.0
 
+    inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
+
+    # Calculate the area of both bounding boxes
+    box1_area = (x1_max - x1_min) * (y1_max - y1_min)
+    box2_area = (x2_max - x2_min) * (y2_max - y2_min)
+
+    # Calculate union
+    union_area = box1_area + box2_area - inter_area
+
+    return inter_area / union_area
+
+# Iterate over testing dataset and calculate Intersection over Union score
+total_iou = 0.0
+num_boxes = 0
+model.eval() # Set model to eval mode
+with torch.no_grad():
+    for targets, imgs in tqdm(test_dl):
         imgs = list(img.to(device) for img in imgs)
         annotations = [{k: v.to(device) for k, v in t.items()} for t in targets]
+            
+        # Generate model predictions
+        preds = model(imgs)
+        
+        for i, output in enumerate(preds):
+            predicted_boxes = output['boxes'].cpu().numpy()
+            true_boxes = annotations[i]['boxes'].cpu().numpy()
 
-        loss_dict = model(imgs, annotations)
-        loss = sum(loss for loss in loss_dict.values())
+            for true_box in true_boxes:
+                best_iou = 0
+                for pred_box in predicted_boxes:
+                    iou = calculate_iou(true_box, pred_box)
+                    if iou > best_iou:
+                        best_iou = iou
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss
-
-    lr_scheduler.step() # NOTE: Only use when implementing a learning rate scheduler
-
-    # Track loss during training
-    print(f' Loss: {epoch_loss}, Epoch: {e_num}')
-    losses_for_plot.append(epoch_loss.item())
-    e_num += 1
-
-    # Save fine-tuned model weights locally
-    torch.save(model.state_dict(),'FinetunedWeights.pt') # Saves after every Epoch
+                total_iou += best_iou
+                num_boxes += 1
+    
+    avg_iou = total_iou / num_boxes if num_boxes > 0 else 0
+    print(f"Average IoU: {avg_iou}")
 ```
 
-# Visualize Training Efficacy
+# Visualize Boxes
 
-This is a basic function that can be used to construct a plot which tracks loss during training. Customize your own visualization methods here as a method of testing different approaches to testing. This can help to determine optimal batch sizes, optimizers, learning rate schedulers, and more!
+In order to visualize our images with box predictions drawn around the objects, I recommend this helper function plot_image(). Using this function we can take any batch of data from our test dataset, run our model in eval() mode with torch.no_grad() to predict bounding boxes, and then visualize them compared to the ground truth.
 
 ```python
-plt.figure(figsize=(8, 5))
-plt.plot(losses_for_plot)
+def plot_image(img_tensor, annotation, isPred):
 
-# Adding labels and title
-plt.title("Loss Per Epoch")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
+    fig,ax = plt.subplots(1)
+    img = img_tensor.cpu().data
 
-# Display the plot
-plt.show()
+    # Display the image
+    ax.imshow(img.permute(1, 2, 0))
+
+    i = 0
+    for box in annotation["boxes"]:
+        
+        # This block allows us to only visualize predictions that are given a confidence score >= 0.5 or 50%
+        if isPred:
+            if annotation['scores'][i].item() < 0.5:
+                i += 1
+                continue
+            i += 1
+                
+        box = box.cpu() # Use if running cuda
+        xmin, ymin, xmax, ymax = box.detach().numpy()
+
+        # Create a Rectangle patch
+        rect = patches.Rectangle((xmin.item(),ymin.item()),(xmax-xmin),(ymax-ymin),linewidth=1,edgecolor='r',facecolor='none')
+
+        # Add the patch to the Axes
+        ax.add_patch(rect)
+
+    plt.show()
+
+# Make sure to set the model to evaluation mode and run predictions with torch.no_grad()
+model.eval()
+with torch.no_grad():
+    for targets, imgs in tqdm(test_dl):
+        imgs = list(img.to(device) for img in imgs)
+        annotations = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        break # Simplify visualization by only grabbing the first batch
+    preds = model(imgs) # Get predictions
+
+# Output images with boxes drawn
+IMG_NUM = 3 # [0, batch_size - 1]
+print("Prediction")
+plot_image(imgs[IMG_NUM], preds[IMG_NUM], True)
+print("Target")
+plot_image(imgs[IMG_NUM], annotations[IMG_NUM], False)
 ```
 
 # Additional Target Methods
