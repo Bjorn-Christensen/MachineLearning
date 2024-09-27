@@ -1,6 +1,6 @@
 # About
 
-This tutorial is designed to efficiently walk you through testing an object detection model through accuracy scores and bounding box visualization. This tutorial assumes that you are using locally stored weights and a corresponding PyTorch Faster RCNN model. Some sections of this tutorial are also written under the assumption that you are working with data that has already been processed following the template in [PreprocessData.md](PreprocessData.md). Acknowledging this limitation, code blocks that often have multiple approaches are written to reflect a general outline rather than a concrete solution. Please refer to the table of contents for assistance in navigating this tutorial.
+This tutorial is designed to efficiently walk you through testing an object detection model by examining accuracy scores and visualizing bounding box predictions. It will be treated as a follow-up to [FinetunePyTorchModel.md](FinetunePyTorchModel.md) and as such it will assume that you are familiar with important aspects of your dataset, such as how to properly load data, what kind of labels/classes you are working with, and how to generate bounding boxes and map integer labels to objects. Some sections of this tutorial are also written under the assumption that you are working with data that has already been processed following the template in [PreprocessData.md](PreprocessData.md). Please refer to the table of contents for assistance.
 
 <!-- TABLE OF CONTENTS -->
 <details>
@@ -48,8 +48,6 @@ from tqdm import tqdm
 
 # Set Device Type
 
-The template assumes we are working on cuda as it is most efficient for deep learning object detection model training. If you happen to be working on cpu, there are a number of small adjustments that need to be made (especially when visualizing data) which will not be included here.
-
 ```python
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 print(device)
@@ -57,87 +55,11 @@ print(device)
 
 # Load Dataset
 
-## Pandas Load:
-
-Pandas can handle a wide variety of file types and is simple to work with. When available, I prefer this option.
-
-```python
-import pandas as pd
-
-dataset = pd.read_pickle('PickledDataset.pkl')
-dataset = pd.read_csv('CSVDataset.csv')
-```
-
-## HuggingFace Load:
-
-With hugging face datasets, there are three primary load options:
-- Download dataset locally and load_dataset in full
-- Stream in dataset directly from HuggingFace servers
-- Stream from locally downloaded dataset in order to bypass converting data to Arrow which can save on time and memory
-
-```python
-from datasets import load_dataset
-
-# Local parquet files
-data_files = {'train': 'train*', 'test': 'test*'}
-dataset = load_dataset('parquet', data_dir='path\\to\\dataset_name\\data\\', data_files=data_files, split='test')
-dataset = ds_train.with_format('torch', device=device)
-
-# Stream in HuggingFace dataset
-dataset = load_dataset('oscar-corpus/OSCAR-2201', 'en', split='test', streaming=True)
-print(next(iter(dataset))) # Streaming creates iterable dataset object
-
-# Stream in local HuggingFace dataset
-data_files = {'train': 'path/to/OSCAR-2201/compressed/en_meta/*.jsonl.gz'}
-dataset = load_dataset('json', data_files=data_files, split='test', streaming=True)
-
-# Convert all data to torch tensors
-dataset = dataset.with_format('torch', device=device)
-```
-
-## XML Load:
-
-Create a list of all xml file path names from local folder. Each file will be individually loaded during a later process.
-
-```python
-import os
-from bs4 import BeautifulSoup # Library to be used during later process
-
-xml_files = list(os.listdir("path/to/test_data/"))
-```
-
-## Separated Images Load:
-
-Create a list of all image path names from local folder. Each file will be individually loaded during a later process.
-
-```python
-import os
-
-images = list(os.listdir("path/to/test_images/"))
-```
+For examples in loading various dataset types, please refer to [FinetunePyTorchModel.md](FinetunePyTorchModel.md).
 
 # Determine Classes
 
-Especially important for poorly maintained datasets, you will want to create a function to determine how many classes/labels are associated with images in the dataset. During this process you will also want to create a method for mapping classes/labels from their original datatype to an integer for model training. There are some generic steps you can use to approach any dataset:
-- Read the dataset documentation! Most of your answers should be found here, but there are also instances where the documentation does not align with the reality of how images are labeled within the dataset
-- Iterate over dataset to determine number of unique classes/labels
-- Create a dictionary or mapping function that sends each label to a corresponding integer from 1 to x, where x is the number of unique classes
-- Initialize the number_of_classes variable which will be used during model creation
-
-```python
-# Example using Pandas dataset, imagine all classes/labels are stored in a column 'metadata'
-unique_labels = dataset['metadata'].unique()
-
-# Create dictionary for mapping, will be used during later process
-label_dict = {}
-i = 1
-for label in unique_labels:
-    label_dict[label] = i
-    i += 1
-
-# This variable is equal to the number of unique classes + 1; the label 0 is reserved for 'no object' or 'background'
-number_of_classes = unique_classes.size + 1
-```
+For examples in determining classes, please refer to [FinetunePyTorchModel.md](FinetunePyTorchModel.md).
 
 # Initialize Model
 
@@ -165,7 +87,7 @@ During training, generate_target will be called to process data and make any fin
 - target: a dictionary which combines the bounding boxes and classes/labels associated with the input image
 - img: The input image loaded and reformatted to a tuple of torch tensors
 
-This example assumes that you are working with a pickle file generated from [PreprocessData.md](PreprocessData.md). For additional target generation techniques, such as when working with xml files, please refer to <a href="#additional-target-methods">Additional Target Methods</a>.
+This example assumes that you are working with a pickle file generated from [PreprocessData.md](PreprocessData.md). 
 
 ```python
 def generate_target(object):
@@ -346,20 +268,4 @@ print("Prediction")
 plot_image(imgs[IMG_NUM], preds[IMG_NUM], True)
 print("Target")
 plot_image(imgs[IMG_NUM], annotations[IMG_NUM], False)
-```
-
-# Additional Target Methods
-
-## XML Method:
-
-```python
-def generate_target(file):
-    with open(file) as f:
-        data = f.read()
-        soup = BeautifulSoup(data, 'xml')
-        objects = soup.find_all('object')
-
-        for obj in objects:
-            xmin = int(obj.find('xmin').text) # Extract bbox point
-            label = obj.find('name') # Extract label
 ```

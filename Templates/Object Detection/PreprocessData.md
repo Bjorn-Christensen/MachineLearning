@@ -5,7 +5,7 @@ All processed data is then stored in a Pandas DataFrame and saved as a .pkl file
 
 By preprocessing data in this manner, you can significantly reduce training time and enable the use of larger datasets on older or less powerful hardware. Additionally, this approach allows you to standardize input data so that model training code can be reused with various datasets.
 
-In order to simplify this tutorial, it is written under the assumption you are loading in a dataset from a .pkl file that stores images as Bytes data and bounding boxes in Pascal VOC format with normalized points. For examples of working with other file types, refer to <a href='#notable-scenarios'>Notable Scenarios.</a>
+In order to simplify this tutorial, it is written under the assumption you are loading in a dataset from a .pkl file that stores images as Bytes data and bounding boxes in Pascal VOC format with normalized points. For examples of working with other dataset types, refer to [FinetunePyTorchModel.md](FinetunePyTorchModel.md)'s Load Dataset section.
 
 # Program Outline
 
@@ -93,42 +93,4 @@ DESIRED_FILE_NAME = 'transformed_data.pkl'
 pp = Preprocess(DESIRED_IMAGE_SIZE, DESIRED_FILE_NAME)
 pp.preprocess()
 pp.pickle_data()
-```
-# Notable Scenarios
-
-## Images and Metadata are separated:
-
-- Create list of image file pathways and use idx value from .iterrows() to parse this list
-
-```python
-images = list(os.listdir("archive/train_images/"))
-```
-
-## Data stored in XML File:
-
-- Use BeautifulSoup to parse through xml file data
-
-```python
-from bs4 import BeautifulSoup
-
-with open(file) as f:
-        data = f.read()
-        soup = BeautifulSoup(data, 'xml')
-        objects = soup.find_all('object')
-
-        for obj in objects:
-            xmin = int(obj.find('xmin').text) # Extract bbox point
-            label = obj.find('name') # Extract label
-```
-
-## Using HuggingFace:
-
-- Use HuggingFace's load_dataset function
-
-```python
-from datasets import load_dataset
-
-# Example with parquet file
-data_files = {"train": "train*", "test": "test*"}
-dataset = load_dataset("parquet", data_dir="C:\\Users\\User\\dataset_name\\data\\", data_files=data_files, split="train[:20%]")
 ```

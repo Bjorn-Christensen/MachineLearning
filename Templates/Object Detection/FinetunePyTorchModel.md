@@ -107,6 +107,17 @@ import os
 from bs4 import BeautifulSoup # Library to be used during later process
 
 xml_files = list(os.listdir("path/to/train_data/"))
+
+# This block is an example of how to use xml files in the Generate Target section
+def generate_target(file):
+    with open(file) as f:
+        data = f.read()
+        soup = BeautifulSoup(data, 'xml')
+        objects = soup.find_all('object')
+
+        for obj in objects:
+            xmin = int(obj.find('xmin').text) # Extract bbox point
+            label = obj.find('name') # Extract label
 ```
 
 ## Separated Images Load:
@@ -169,7 +180,7 @@ During training, generate_target will be called to process data and make any fin
 - target: a dictionary which combines the bounding boxes and classes/labels associated with the input image
 - img: The input image loaded and reformatted to a tuple of torch tensors
 
-This example assumes that you are working with a pickle file generated from [PreprocessData.md](PreprocessData.md). For additional target generation techniques, such as when working with xml files, please refer to <a href="#additional-target-methods">Additional Target Methods</a>.
+This example assumes that you are working with a pickle file generated from [PreprocessData.md](PreprocessData.md).
 
 ```python
 def generate_target(object):
@@ -317,20 +328,4 @@ plt.ylabel("Loss")
 
 # Display the plot
 plt.show()
-```
-
-# Additional Target Methods
-
-## XML Method:
-
-```python
-def generate_target(file):
-    with open(file) as f:
-        data = f.read()
-        soup = BeautifulSoup(data, 'xml')
-        objects = soup.find_all('object')
-
-        for obj in objects:
-            xmin = int(obj.find('xmin').text) # Extract bbox point
-            label = obj.find('name') # Extract label
 ```
